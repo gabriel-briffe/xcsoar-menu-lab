@@ -2,18 +2,977 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>XCSoar menu lab</title>
   <style>
-    body { margin: 0; font: 16px/1.45 system-ui, sans-serif; background: #14171c; color: #f3f4f6; padding: 28px 20px; }
-    a { color: #6ea8ff; }
-    code { background: #23282f; padding: 1px 6px; border-radius: 6px; }
+    :root {
+      --bg: #0b0d10; --panel: #14171c; --tile: #23282f; --tile-hi: #2e353e;
+      --line: #3a414b; --text: #f3f4f6; --muted: #9aa3ad; --gold: #f0c040;
+      --accent: #6ea8ff; --ok: #8fbf4a; --safe: env(safe-area-inset-top, 8px);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.35 "Segoe UI", "Helvetica Neue", sans-serif; }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { appearance: none; }
+    .split {
+      display: flex; justify-content: center; align-items: center;
+      padding: 28px 16px 20px;
+      margin-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .split .btn { min-height: 44px; padding: 0 18px; font-size: 15px; }
+    #explorer { display: none; flex-direction: column; }
+    body.tree-on #explorer { display: flex; }
+    .toast {
+      display: none; margin: 0; padding: 8px 12px; font-size: 12px;
+      background: #2a3a24; color: #c9e38a; border-bottom: 1px solid var(--line);
+    }
+    .toast.show { display: block; }
+    .io {
+      display: none; padding: 10px; border-bottom: 1px solid var(--line); background: #101318;
+    }
+    .io.show { display: block; }
+    .io textarea { width: 100%; min-height: 120px; background: #0b0d10; border: 1px solid var(--line);
+      border-radius: 8px; padding: 8px; color: var(--text); font: 11px/1.35 ui-monospace, monospace; }
+    .btn {
+      border: 1px solid var(--line); background: var(--tile);
+      border-radius: 9px; min-height: 36px; padding: 0 10px; font-weight: 650;
+    }
+    .btn:active { background: var(--tile-hi); }
+    .btn.gold { border-color: #c9a227; color: #ffe08a; background: #3d3314; }
+    .wrap { display: grid; grid-template-columns: 1fr; }
+    @media (min-width: 980px) {
+      body.tree-on .wrap { grid-template-columns: minmax(340px, 1fr) minmax(380px, 1fr); min-height: 100vh; }
+      body.tree-on .explorer { border-left: 1px solid var(--line); }
+    }
+
+    /* emulator */
+    .emu { background: #5c636c; min-height: 52vh; display: flex; flex-direction: column; }
+    .emu-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-bottom: 1px solid #6e7680; background: #6a727c;
+    }
+    .emu-head h2 { flex: 1; margin: 0; font-size: 15px; }
+    .crumb { color: var(--muted); font-size: 12px; padding: 8px 12px 0; }
+    .tile.arrow {
+      background: transparent; border: 0; box-shadow: none;
+      color: var(--muted); font-size: 36px; font-weight: 400; line-height: 1;
+    }
+    .tile.arrow:active { background: transparent; color: var(--gold); }
+    .section { color: var(--muted); font-size: 11px; letter-spacing: .06em;
+      text-transform: uppercase; padding: 12px 12px 0; }
+    .grid {
+      display: grid; grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 8px; padding: 10px 12px 16px; align-content: start;
+    }
+    .tile {
+      background: var(--tile); border: 1px solid var(--line); border-radius: 14px;
+      height: 104px; max-height: 104px; padding: 6px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; text-align: center; overflow: hidden; width: 100%;
+    }
+    .tile:active { background: var(--tile-hi); }
+    .tile svg { width: 32px; height: 32px; flex: 0 0 32px; }
+    .tile .label { font-weight: 650; font-size: 12px; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
+    .tile .state { font-size: 11px; color: var(--gold); min-height: 13px; }
+    .tile.room .state { color: var(--muted); }
+
+    /* explorer */
+    .explorer { background: var(--panel); min-height: 48vh; }
+    .ex-tools {
+      position: sticky; top: 0; z-index: 30;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: calc(var(--safe) + 8px) 10px 8px;
+      border-bottom: 1px solid var(--line);
+      background: #14171c;
+      box-shadow: 0 8px 16px rgba(0,0,0,.35);
+    }
+    .tree { flex: 1; overflow: visible; padding: 6px 0 12px; }
+    .row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border-left: 3px solid transparent; cursor: pointer;
+    }
+    .row:hover { background: #1c2128; }
+    .row.sel { background: #243044; border-left-color: var(--accent); }
+    .row.drop { background: #2a3a24; }
+    .row .twist { width: 18px; text-align: center; color: var(--muted); }
+    .row .ic { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+    .row .ic svg { width: 18px; height: 18px; }
+    .row .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row .tag { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .insp {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      border-top: 1px solid var(--line);
+      background: #101318;
+      box-shadow: 0 -8px 20px rgba(0,0,0,.4);
+      padding-bottom: env(safe-area-inset-bottom, 8px);
+    }
+    .insp-handle {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 10px 12px; background: #101318; border: 0; text-align: left;
+    }
+    .insp-handle .chev { color: var(--muted); width: 20px; }
+    .insp-handle .preview { width: 28px; height: 28px; }
+    .insp-handle .preview svg { width: 20px; height: 20px; }
+    .insp-body { display: none; padding: 0 12px 12px; gap: 8px; max-height: 46vh; overflow: auto; }
+    .insp.open .insp-body { display: grid; }
+    .insp label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
+    .tree { padding-bottom: 72px; }
+    @media (min-width: 980px) {
+      .insp { left: auto; width: min(50vw, 100%); }
+      .explorer { max-height: calc(100vh - 52px); overflow: auto; }
+      .insp { position: sticky; width: auto; }
+      .tree { padding-bottom: 16px; }
+    }
+    .insp input, .insp textarea, .insp select {
+      background: #0b0d10; border: 1px solid var(--line); border-radius: 8px;
+      padding: 8px; color: var(--text); width: 100%;
+    }
+    .insp textarea { min-height: 90px; font: 11px/1.35 ui-monospace, monospace; }
+    .preview { width: 48px; height: 48px; background: var(--tile); border-radius: 10px;
+      display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); }
+    .preview svg { width: 32px; height: 32px; }
+    .hint { color: var(--muted); font-size: 11px; padding: 0 10px 10px; }
+    .cut { outline: 1px dashed var(--gold); }
   </style>
 </head>
 <body>
-  <h1>XCSoar menu lab</h1>
-  <p>Repo is live. Put the lab HTML at <code>index.html</code> to serve it here on each push to <code>main</code>.</p>
-  <p>First time: Settings → Pages → Source → <strong>GitHub Actions</strong>.</p>
-  <p><a href="https://github.com/gabriel-briffe/xcsoar-menu-lab">github.com/gabriel-briffe/xcsoar-menu-lab</a></p>
+  <div id="toast" class="toast"></div>
+  <div class="wrap">
+    <section class="emu" id="emu"></section>
+  </div>
+  <div class="split">
+    <button class="btn gold" type="button" id="btn-tree" onclick="toggleTree()">Reorganize</button>
+  </div>
+  <section class="explorer" id="explorer">
+      <div class="ex-tools" id="ex-tools">
+        <button class="btn" type="button" id="btn-reset">Reset</button>
+        <button class="btn" type="button" id="btn-export">Export file</button>
+        <label class="btn" for="imp" id="btn-import" style="display:inline-flex;align-items:center;cursor:pointer">Import file</label>
+        <button class="btn" type="button" onclick="addNode()">+ Node</button>
+        <button class="btn" type="button" onclick="moveSel(-1)">Up</button>
+        <button class="btn" type="button" onclick="moveSel(1)">Down</button>
+        <button class="btn" type="button" onclick="cutSel()">Cut</button>
+        <button class="btn gold" type="button" onclick="pasteSel()">Paste</button>
+        <button class="btn" type="button" onclick="pasteAsRoom()">Paste to root</button>
+        <button class="btn" type="button" onclick="delSel()">Delete</button>
+        <button class="btn" type="button" onclick="foldAll(false)">Fold all</button>
+        <button class="btn" type="button" onclick="foldAll(true)">Unfold all</button>
+      </div>
+      <input id="imp" type="file" accept="application/json,.json,text/plain" hidden>
+      <div class="hint">Everything is a node. Nest as deep as you want. Cut + Paste puts the node under the selection. Paste to root puts it on layer 1.</div>
+      <div class="tree" id="tree"></div>
+      <div class="insp" id="insp"></div>
+    </section>
+<script>
+const ICONS = {
+  lang: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="14"/><path d="M10 24h28M24 10c6 6 6 22 0 28M24 10c-6 6-6 22 0 28"/></svg>`,
+  devices: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="14" width="20" height="20" rx="3"/><path d="M28 20h8v8h-8"/><circle cx="16" cy="24" r="2" fill="#8fbf4a" stroke="none"/></svg>`,
+  map: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 14l12-4 12 4 8-3v26l-8 3-12-4-12 4z"/><path d="M20 10v26M32 14v26"/></svg>`,
+  aircraft: `<svg viewBox="0 0 48 48" fill="#d7dde4"><path d="M6 24h36l-6 3H12z"/><path d="M23 16h2v16h-2z"/><path d="M20 16h8l-4-6z"/><path d="M18 32h12l-6 6z"/></svg>`,
+  task: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="12" cy="34" r="4"/><circle cx="36" cy="14" r="4"/><path d="M15 31l18-14"/></svg>`,
+  instruments: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 30a16 16 0 1 1 32 0"/><path d="M24 30l8-10"/></svg>`,
+  weather: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M18 34h16a8 8 0 0 0 1-16 10 10 0 0 0-19 4 6 6 0 0 0 2 12z"/></svg>`,
+  system: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="6"/><path d="M24 10v4M24 34v4M10 24h4M34 24h4"/></svg>`,
+  compass: `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="16" fill="none" stroke="#d7dde4" stroke-width="2"/><path d="M24 8l6 28-6-4-6 4z" fill="#f0c040"/></svg>`,
+  ground: `<svg viewBox="0 0 48 48"><path d="M4 36l12-16 8 10 6-8 14 14H4z" fill="#6f8f4a" stroke="#d7dde4" stroke-width="2"/></svg>`,
+  waypoints: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="16" cy="30" r="3"/><circle cx="32" cy="16" r="3"/><path d="M16 27c8-2 10-8 13-10"/></svg>`,
+  airspace: `<svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="14" stroke="#6ea8ff" stroke-width="2.4"/><circle cx="24" cy="24" r="8" stroke="#f0c040" stroke-width="2.4"/></svg>`,
+  notices: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 8l16 28H8z"/><path d="M24 20v8"/></svg>`,
+  cockpit: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="10" width="20" height="28"/><rect x="30" y="10" width="10" height="13"/><rect x="30" y="25" width="10" height="13"/></svg>`,
+  safety: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 8l16 6v10c0 10-7 16-16 18C15 40 8 34 8 24V14z"/></svg>`,
+  calc: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="14"/><path d="M24 24l8-5"/></svg>`,
+  wind: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 20h22a6 6 0 1 0-6-6"/><path d="M8 28h28a5 5 0 1 1-5 5"/></svg>`,
+  routing: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 34c8-16 20-16 28-4"/><circle cx="10" cy="34" r="3"/></svg>`,
+  rules: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M14 8h20v32H14z"/><path d="M18 16h12M18 22h12"/></svg>`,
+  turnpoints: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="12"/><circle cx="24" cy="24" r="3" fill="#f0c040" stroke="none"/></svg>`,
+  scoring: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M14 36V20h6v16M22 36V12h6v24M30 36V24h6v12"/></svg>`,
+  traffic: `<svg viewBox="0 0 48 48" fill="none" stroke="#8fbf4a" stroke-width="2.2"><circle cx="24" cy="24" r="4" fill="#8fbf4a"/><path d="M24 8v6M24 34v6M8 24h6M34 24h6"/></svg>`,
+  vario: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="10" y="8" width="10" height="32" rx="2"/><rect x="28" y="8" width="10" height="32" rx="2"/></svg>`,
+  sound: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M14 20v8h6l8 6V14l-8 6z"/><path d="M32 18a8 8 0 0 1 0 12"/></svg>`,
+  thermals: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 36c0-8 8-10 8-18A8 8 0 0 0 16 18c0 8 8 10 8 18z"/></svg>`,
+  forecast: `<svg viewBox="0 0 48 48"><path d="M8 32c6-10 10-6 16-14 6 10 10 4 16 14H8z" fill="#3d5a3a" stroke="#d7dde4" stroke-width="2"/></svg>`,
+  satellite: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="10"/><path d="M8 24h4M36 24h4"/></svg>`,
+  site: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 34V18l14-8 14 8v16z"/><path d="M20 34V24h8v10"/></svg>`,
+  units: `<svg viewBox="0 0 48 48"><text x="24" y="30" text-anchor="middle" font-size="14" font-weight="700" fill="#f0c040">km</text></svg>`,
+  time: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="14"/><path d="M24 14v10l7 4"/></svg>`,
+  logger: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="12" y="8" width="24" height="32" rx="3"/></svg>`,
+  accounts: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="18" r="6"/><path d="M10 36c2-8 26-8 28 0"/></svg>`,
+  tracking: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 34l8-20 8 12 12-16"/></svg>`,
+  network: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="4"/><circle cx="10" cy="14" r="3"/><circle cx="38" cy="16" r="3"/></svg>`,
+  services: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="10" y="10" width="28" height="8"/><rect x="10" y="20" width="28" height="8"/><rect x="10" y="30" width="28" height="8"/></svg>`,
+  gear: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="6"/><circle cx="24" cy="24" r="14"/></svg>`,
+  group: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="14" width="32" height="24" rx="3"/><path d="M16 14v-3h16v3"/></svg>`,
+  profile: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M14 10h20v28H14z"/><path d="M18 16h12M18 22h12M18 28h8"/></svg>`,
+  about: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="14"/><path d="M24 22v10"/><circle cx="24" cy="16" r="1.6" fill="#d7dde4" stroke="none"/></svg>`,
+  graphics: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="12" width="24" height="18" rx="2"/><rect x="16" y="20" width="24" height="18" rx="2"/><circle cx="34" cy="26" r="3" fill="#f0c040" stroke="none"/></svg>`,
+  data: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 34V18l14-8 14 8v16z"/><path d="M20 34V24h8v10"/></svg>`,
+  download: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 10v20"/><path d="M16 22l8 8 8-8"/><path d="M12 36h24"/></svg>`,
+  upload: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 30V10"/><path d="M16 18l8-8 8 8"/><path d="M12 36h24"/></svg>`,
+  backup: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><ellipse cx="24" cy="14" rx="12" ry="5"/><path d="M12 14v8c0 3 5 5 12 5s12-2 12-5v-8"/><path d="M12 22v8c0 3 5 5 12 5s12-2 12-5v-8"/></svg>`,
+  explorer: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="14" width="24" height="20" rx="2"/><path d="M8 20h24"/><circle cx="34" cy="32" r="6"/><path d="M38 36l6 6"/></svg>`,
+  trail: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2" stroke-dasharray="3 3"><path d="M8 36c6-2 8-10 14-14s10-2 18 2"/></svg>`,
+  labels: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 24l14-14h18v18L26 42z"/><circle cx="30" cy="18" r="2.5"/></svg>`,
+  pages: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="10" y="10" width="20" height="22" rx="2"/><rect x="18" y="16" width="20" height="22" rx="2"/></svg>`,
+  infobox: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><rect x="8" y="8" width="14" height="14" rx="2"/><rect x="26" y="8" width="14" height="14" rx="2"/><rect x="8" y="26" width="14" height="14" rx="2"/><rect x="26" y="26" width="14" height="14" rx="2"/></svg>`,
+  weglide: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 28c0-6 5-10 11-10 1-5 7-8 12-5 5 1 8 6 8 11H10z"/><path d="M24 22v14"/><path d="M18 28l6 8 6-8"/></svg>`,
+  add: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="24" cy="24" r="14"/><path d="M24 16v16M16 24h16"/></svg>`,
+  larus: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 28c8-10 12-10 16-4 4-6 8-6 16 4"/><path d="M24 24v12"/></svg>`,
+  track: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 32h32"/><path d="M24 32V12l6 6"/></svg>`,
+  zoom: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><circle cx="20" cy="20" r="10"/><path d="M28 28l10 10"/></svg>`,
+  warning: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M24 8l18 30H6z"/><path d="M24 20v10"/><circle cx="24" cy="34" r="1.6" fill="#d7dde4" stroke="none"/></svg>`,
+  wifi: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M10 22c8-8 20-8 28 0"/><path d="M16 28c5-5 11-5 16 0"/><circle cx="24" cy="34" r="2" fill="#d7dde4" stroke="none"/></svg>`,
+  polar: `<svg viewBox="0 0 48 48" fill="none" stroke="#d7dde4" stroke-width="2.2"><path d="M8 36h32M8 36V12"/><path d="M10 16c8 2 16 10 28 18"/></svg>`
+};
+
+function iconDraw(n) {
+  const name = (n && n.icon) || "gear";
+  if (typeof name === "string" && name.trim().indexOf("<svg") === 0) return name;
+  return (tree && tree.icons && tree.icons[name]) || ICONS[name] || ICONS.gear;
+}
+function iconId(n) {
+  const name = (n && n.icon) || "gear";
+  if (typeof name === "string" && name.trim().indexOf("<svg") === 0) return "custom";
+  return name;
+}
+function findIconName(svg, pack) {
+  if (!svg) return null;
+  const s = String(svg).trim();
+  if (s.indexOf("<") !== 0) return s;
+  for (const [k, v] of Object.entries(pack || {})) if (v === s || v === svg) return k;
+  return null;
+}
+function normalizeTree(t) {
+  t.icons = Object.assign({}, ICONS, t.icons || {});
+  let n = 1;
+  const walk = (node) => {
+    if (!node) return;
+    const ic = node.icon || "gear";
+    if (typeof ic === "string" && ic.trim().indexOf("<svg") === 0) {
+      let k = findIconName(ic, t.icons) || findIconName(ic, ICONS);
+      if (!k) {
+        k = "custom_" + n++;
+        while (t.icons[k]) k = "custom_" + n++;
+        t.icons[k] = ic;
+      }
+      node.icon = k;
+    } else if (ic && !t.icons[ic] && ICONS[ic]) {
+      t.icons[ic] = ICONS[ic];
+    }
+    (node.children || []).forEach(walk);
+  };
+  (t.rooms || []).forEach(walk);
+  (t.pins || []).forEach(walk);
+  return t;
+}
+
+const uid = () => "n" + Math.random().toString(36).slice(2, 9);
+const node = (type, title, icon, state, children = []) => ({
+  id: uid(), type, title, icon, state: state || "", children
+});
+
+function seed() {
+  const item = (t, ic) => node("item", t, ic, "");
+  const page = (t, ic, names) => node("page", t, ic, "", names.map((n) => item(n, ic)));
+  const room = (t, ic, pages) => node("room", t, ic, "", pages);
+  return {
+    pins: [],
+    rooms: [
+      room("Language, Input", ICONS.lang, [
+        page("Language, Input", ICONS.lang, [
+          "Text size", "Display Resolution", "Events", "Language",
+          "Menu timeout", "Text input style", "Haptic feedback",
+          "Safety disclaimer accepted"
+        ])
+      ]),
+      room("Map", ICONS.map, [
+        page("Orientation", ICONS.compass, [
+          "Cruise orientation", "Circling orientation", "Circling zoom",
+          "Map shift reference", "Glider position offset",
+          "Max. auto zoom distance", "Distinct page zoom"
+        ]),
+        page("Elements", ICONS.aircraft, [
+          "Ground track", "FLARM Traffic", "Fade traffic",
+          "Trail length", "Trail drift", "Trail type", "Trail scaled",
+          "Detour cost markers", "Aircraft symbol", "Wind arrow"
+        ]),
+        page("Waypoints", ICONS.waypoints, [
+          "Label format", "Arrival height", "Label style", "Label visibility",
+          "Landable symbols", "Waypoint icon size", "Detailed landables",
+          "Landable size", "Scale runway length"
+        ]),
+        page("Terrain", ICONS.ground, [
+          "Terrain Display", "Topography display", "Terrain colors",
+          "Slope shading", "Terrain contrast", "Terrain brightness", "Contours"
+        ]),
+        page("Airspace", ICONS.airspace, [
+          "Airspace display", "Label visibility", "Show NOTAM labels",
+          "Clip altitude", "Margin", "Warnings", "Warnings dialog",
+          "Warning time", "Repetitive sound", "Acknowledge time",
+          "Use black outline", "Airspace fill mode", "Airspace transparency"
+        ]),
+        page("NOTAM", ICONS.notices, [
+          "NOTAM Support", "API URL", "Search Radius", "Auto-Refresh (minutes)",
+          "Show IFR-Only NOTAMs", "Show Only Currently Effective",
+          "Maximum NOTAM Radius", "Hidden Q-Codes"
+        ]),
+        page("Screen Layout", ICONS.cockpit, [
+          "Full screen", "Display orientation", "Dark mode",
+          "InfoBox geometry", "InfoBox title size", "Tab dialog style",
+          "Message display", "Colored InfoBoxes", "InfoBox theme",
+          "InfoBox border", "Show Menu button", "Show Zoom button",
+          "Cursor zoom", "Invert cursor color"
+        ]),
+        page("Pages", ICONS.pages || ICONS.cockpit, [
+          "Page list with Add / Delete",
+          "Per page: Main area", "Per page: InfoBoxes", "Per page: Bottom area",
+          "Overlay extras: RASP Layer", "Overlay extras: EDL Level",
+          "Overlay extras: SkySight layer", "Overlay extras: Layer / Level"
+        ]),
+        page("InfoBox Sets", ICONS.cockpit, [
+          "One button per InfoBox set", "Use final glide mode"
+        ])
+      ]),
+      room("Aircraft", ICONS.aircraft, [
+        page("Safety Factors", ICONS.safety, [
+          "Arrival height", "Terrain height", "Alternates mode",
+          "Polar degradation", "Auto bugs", "Safety MC",
+          "STF risk factor", "Turn back marker"
+        ]),
+        page("Glide Computer", ICONS.calc, [
+          "Auto MC mode", "Block speed to fly", "Nav. by baro altitude",
+          "Flap forces cruise", "GR average period", "Predict wind drift",
+          "Wave assistant", "Cruise/Circling period", "Circling/Cruise period"
+        ]),
+        page("Wind", ICONS.wind, [
+          "Circling wind", "ZigZag wind", "External wind"
+        ]),
+        page("Route", ICONS.routing, [
+          "Route mode", "Route climb", "Route ceiling",
+          "Reach mode", "Reach polar", "Reach display"
+        ])
+      ]),
+      room("Task", ICONS.task, [
+        page("Task Rules", ICONS.rules, [
+          "Start max. speed", "Start max. speed margin",
+          "Start max. height", "Start max. height margin", "Start height ref.",
+          "Finish min. height", "Finish height ref.",
+          "PEV start wait time", "PEV start window"
+        ]),
+        page("Turnpoint Types", ICONS.turnpoints, [
+          "Start point", "Finish point", "Turn point", "Task",
+          "AAT min. time", "Optimisation margin"
+        ]),
+        page("Scoring", ICONS.scoring, [
+          "Contest", "Predict Contest", "FAI triangle areas",
+          "FAI triangle threshold", "95% dist. rule helpers"
+        ])
+      ]),
+      room("Gauges", ICONS.instruments, [
+        page("FLARM, Other", ICONS.traffic, [
+          "FLARM Radar", "Auto close FLARM", "FLARM display",
+          "Thermal Assistant", "Thermal Band", "Final glide bar",
+          "Final glide bar MC0", "Vario bar", "No position target"
+        ]),
+        page("Vario", ICONS.vario, [
+          "Speed arrows", "Show average", "Show MacReady", "Show bugs",
+          "Show ballast", "Show gross", "Averager needle", "Thermal Averager needle"
+        ]),
+        page("Audio Vario", ICONS.sound, [
+          "Audio Vario", "Volume", "Enable Deadband",
+          "Min. Frequency", "Zero Frequency", "Max. Frequency",
+          "Deadband min. lift", "Deadband max. lift"
+        ])
+      ]),
+      room("Weather", ICONS.weather, [
+        page("Thermal Information Map", ICONS.thermals, [
+          "Thermal Information Map"
+        ]),
+        page("RASP", ICONS.forecast, [
+          "RASP weather widget"
+        ]),
+        page("SkySight", ICONS.satellite, [
+          "SkySight Email", "SkySight Password", "SkySight Region"
+        ]),
+        page("Flugwetter (pc_met)", ICONS.weather, [
+          "pc_met Username", "pc_met Password"
+        ]),
+        page("XC Therm", ICONS.thermals, [
+          "XC Therm email", "XC Therm password",
+          "XC Therm region", "XC Therm Auto Layer/Time"
+        ])
+      ]),
+      room("Setup", ICONS.system, [
+        page("Site Files", ICONS.site, [
+          "XCSoar data path", "Map database", "Waypoints", "Watched WPTs",
+          "WPT A/F details", "Airspace", "FLARM database", "RASP",
+          "Checklist", "User repositories"
+        ]),
+        page("Logger", ICONS.logger, [
+          "Pilot name", "CoPilot name", "Crew weight default",
+          "Time step cruise", "Time step circling", "Auto. logger",
+          "NMEA Logger", "Log book", "Logger ID"
+        ]),
+        page("Units", ICONS.units, [
+          "Preset", "Aircraft/Wind speed", "Distance", "Lift", "Altitude",
+          "Temperature", "Task Speed", "Pressure", "Mass",
+          "Wing loading", "Lat./Lon.", "Rotation"
+        ]),
+        page("Time", ICONS.time, [
+          "UTC offset", "Use GPS time"
+        ]),
+        page("Tracking", ICONS.tracking, [
+          "SkyLines enable", "Roaming", "Tracking Interval", "Track friends",
+          "Show nearby traffic", "SkyLines key",
+          "LiveTrack24 Tracking Interval", "Vehicle Type", "Vehicle Name",
+          "Server", "Username", "Password"
+        ]),
+        page("XCSoar Cloud", ICONS.accounts, [
+          "XCSoar Cloud", "Show traffic", "Roaming", "Show thermals",
+          "Server", "Port", "Own FLARM IDs"
+        ]),
+        page("WeGlide", ICONS.task, [
+          "Enable", "Automatic Upload", "Pilot", "Pilot date of birth"
+        ]),
+        page("Audio", ICONS.sound, [
+          "Master Volume"
+        ]),
+        page("Network", ICONS.network, [
+          "Connectivity", "IP address", "Backend", "WiFi List",
+          "WiFi Enabled", "Auto WiFi"
+        ])
+      ])
+    ]
+  };
+}
+
+const KEY = "xcsoar-menu-lab-v5";
+let tree = load();
+let sel = null;
+let clip = null;
+let emuPath = [];
+let inspOpen = false;
+const openSet = new Set();
+function defaultOpen() {
+  openSet.clear();
+  tree.pins.forEach((p) => openSet.add(p.id));
+  tree.rooms.forEach((r) => openSet.add(r.id));
+}
+defaultOpen();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return normalizeTree(JSON.parse(raw));
+  } catch (e) {}
+  return normalizeTree(seed());
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(tree)); } catch (e) {}
+}
+
+function allRoots() { return tree.pins.concat(tree.rooms); }
+function walk(list, fn, parent = null) {
+  for (const n of list) {
+    fn(n, parent, list);
+    if (n.children) walk(n.children, fn, n);
+  }
+}
+function findIn(parent, id) {
+  const kids = parent.children || [];
+  for (const n of kids) {
+    if (n.id === id) return { n, p: parent, sib: kids };
+    const inner = findIn(n, id);
+    if (inner) return inner;
+  }
+  return null;
+}
+function find(id) {
+  for (const n of tree.pins) {
+    if (n.id === id) return { n, p: null, sib: tree.pins };
+    const inner = findIn(n, id);
+    if (inner) return inner;
+  }
+  for (const n of tree.rooms) {
+    if (n.id === id) return { n, p: null, sib: tree.rooms };
+    const inner = findIn(n, id);
+    if (inner) return inner;
+  }
+  return null;
+}
+function canAccept() { return true; }
+
+function renderAll() {
+  renderTree();
+  renderInsp();
+  renderEmu();
+  save();
+}
+
+function renderTree() {
+  const el = document.getElementById("tree");
+  const rows = [];
+  const block = (title, list) => {
+    rows.push(`<div class="section" onclick="selectRoot()" ondragover="event.preventDefault()" ondrop="onDropRoot(event)">${title} · tap then Paste to root</div>`);
+    list.forEach((n) => rows.push(rowHtml(n, 0)));
+  };
+  block("Layer 1 · rooms", tree.rooms);
+  el.innerHTML = rows.join("");
+}
+
+function rowHtml(n, depth) {
+  const has = n.children && n.children.length;
+  const opened = openSet.has(n.id);
+  const canFold = !!(n.children && n.children.length);
+  const twist = has && canFold
+    ? `<span class="twist" onclick="event.stopPropagation(); toggleOpen('${n.id}')">${opened ? "▾" : "▸"}</span>`
+    : `<span class="twist"></span>`;
+  const kids = (has && opened)
+    ? n.children.map((c) => rowHtml(c, depth + 1)).join("")
+    : "";
+  return `<div class="row ${sel === n.id ? "sel" : ""} ${clip && clip.id === n.id ? "cut" : ""}"
+      style="padding-left:${10 + depth * 16}px"
+      draggable="true"
+      ondragstart="onDrag(event,'${n.id}')"
+      ondragover="onOver(event,'${n.id}')"
+      ondragleave="onLeave(event)"
+      ondrop="onDrop(event,'${n.id}')"
+      onclick="selectNode('${n.id}')">
+      ${twist}
+      <span class="ic">${iconDraw(n)}</span>
+      <span class="nm">${esc(n.title)}</span>
+      <span class="tag">${n.type}</span>
+    </div>${kids}`;
+}
+
+function renderInsp() {
+  const box = document.getElementById("insp");
+  const hit = sel ? find(sel) : null;
+  box.className = "insp" + (inspOpen ? " open" : "");
+  if (!hit) {
+    box.innerHTML = `
+      <button class="insp-handle" type="button" onclick="toggleInsp()">
+        <span class="chev">${inspOpen ? "▾" : "▴"}</span>
+        <strong>Inspector</strong>
+        <span class="tag">select a row</span>
+      </button>
+      <div class="insp-body"><div class="hint">Select a pin, room, page, or setting in the tree.</div></div>`;
+    return;
+  }
+  const n = hit.n;
+  const id = iconId(n);
+  const names = Object.keys(tree.icons || ICONS);
+  const presets = names.map((k) =>
+    `<option value="${k}" ${k === id ? "selected" : ""}>${k}</option>`
+  ).join("");
+  box.innerHTML = `
+    <button class="insp-handle" type="button" onclick="toggleInsp()">
+      <span class="chev">${inspOpen ? "▾" : "▴"}</span>
+      <span class="preview">${iconDraw(n)}</span>
+      <strong>${esc(n.title)}</strong>
+      <span class="tag">${esc(id)}</span>
+    </button>
+    <div class="insp-body">
+      <label>Name<input id="f-title" value="${escAttr(n.title)}" oninput="editField('title', this.value)"></label>
+      <label>Caption / live state<input id="f-state" value="${escAttr(n.state || "")}" oninput="editField('state', this.value)"></label>
+      <label>Icon ID
+        <input id="f-icon-id" value="${escAttr(id)}" onchange="renameIcon(this.value)">
+      </label>
+      <label>Icon
+        <select onchange="applyPreset(this.value)">${presets}</select>
+      </label>
+      <label>SVG for “${esc(id)}”
+        <textarea id="f-icon" oninput="editIconSvg(this.value)">${esc(iconDraw(n))}</textarea>
+      </label>
+    </div>`;
+}
+
+function nodeByPath() {
+  let list = tree.rooms;
+  let cur = { title: "Settings", children: list };
+  const titles = ["Settings"];
+  for (const id of emuPath) {
+    const found = (cur.children || []).find((c) => c.id === id);
+    if (!found) return { cur, titles, broken: true };
+    cur = found;
+    titles.push(found.title);
+  }
+  return { cur, titles, broken: false };
+}
+const PAGE = 9;
+let emuPage = 0;
+function renderEmu() {
+  const el = document.getElementById("emu");
+  const { cur, titles, broken } = nodeByPath();
+  if (broken) { emuPath = []; emuPage = 0; return renderEmu(); }
+  const kids = cur.children || [];
+  const multi = kids.length > 9;
+  const cells = [];
+  if (!multi) {
+    kids.forEach((c) => cells.push(tileHtml(c)));
+  } else {
+    let start = 0;
+    for (let p = 0; p < emuPage; p++) {
+      const hasPrev = p > 0;
+      const left = kids.length - start;
+      const take = 9 - (hasPrev ? 1 : 0) - 1;
+      start += Math.max(1, take);
+    }
+    const hasPrev = emuPage > 0;
+    const left = kids.length - start;
+    const room = 9 - (hasPrev ? 1 : 0);
+    const needNext = left > room - (left > room - 1 && room === 9 ? 0 : 0);
+    // if remaining items fit in room, no next; if they need a next slot, take room-1
+    const take = left > room ? room - 1 : left;
+    const slice = kids.slice(start, start + take);
+    const hasNext = start + take < kids.length;
+    if (hasPrev) cells.push(`<button class="tile arrow" type="button" onclick="emuFlip(-1)">‹</button>`);
+    slice.forEach((c) => cells.push(tileHtml(c)));
+    if (hasNext) cells.push(`<button class="tile arrow" type="button" onclick="emuFlip(1)">›</button>`);
+  }
+  const back = emuPath.length ? "emuBack()" : "";
+  el.innerHTML = head(cur.title || "Settings", back) +
+    `<div class="crumb">${titles.map(esc).join(" / ")}</div>
+     <div class="grid">${cells.join("") || empty()}</div>`;
+}
+
+function head(title, back) {
+  return `<div class="emu-head">
+    ${back ? `<button class="btn" type="button" onclick="${back}">Back</button>` : ""}
+    <h2>${esc(title)}</h2>
+  </div>`;
+}
+function emuFlip(dir) {
+  emuPage += dir;
+  renderEmu();
+}
+function empty() { return `<div class="hint">Empty. Add children in the tree.</div>`; }
+function tileHtml(n) {
+  const hasKids = n.children && n.children.length;
+  const click = hasKids ? `onclick="openEmu('${n.id}')"` : "";
+  const cap = n.state || "";
+  return `<button class="tile" type="button" ${click}>
+    ${iconDraw(n)}
+    <div class="label">${esc(n.title)}</div>
+    ${cap ? `<div class="state">${esc(cap)}</div>` : ""}
+  </button>`;
+}
+
+function openEmu(id) {
+  const at = (nodeByPath().cur.children || []).some((c) => c.id === id);
+  if (at) emuPath = emuPath.concat(id);
+  else emuPath = [id];
+  emuPage = 0;
+  renderEmu();
+}
+function emuBack() { emuPath = emuPath.slice(0, -1); emuPage = 0; renderEmu(); }
+function closeEmu() { emuPath = []; emuPage = 0; renderEmu(); }
+
+function selectNode(id) { sel = id; renderTree(); renderInsp(); }
+function toggleInsp() { inspOpen = !inspOpen; renderInsp(); }
+function foldAll(open) {
+  openSet.clear();
+  if (open) walk(tree.rooms, (n) => { if (n.children && n.children.length) openSet.add(n.id); });
+  renderTree();
+  say(open ? "Unfolded all nodes" : "Folded all nodes");
+}
+function toggleOpen(id) {
+  if (openSet.has(id)) openSet.delete(id); else openSet.add(id);
+  renderTree();
+}
+function editField(key, val) {
+  const hit = find(sel);
+  if (!hit) return;
+  hit.n[key] = val;
+  save();
+  renderTree();
+  renderEmu();
+  if (key === "icon") {
+    const prev = document.querySelector(".preview");
+    if (prev) prev.innerHTML = val || ICONS.gear;
+  }
+}
+function applyPreset(key) {
+  if (!key) return;
+  if (!tree.icons[key] && ICONS[key]) tree.icons[key] = ICONS[key];
+  editField("icon", key);
+  renderInsp();
+}
+function editIconSvg(val) {
+  const hit = find(sel);
+  if (!hit) return;
+  const id = iconId(hit.n);
+  tree.icons = tree.icons || {};
+  tree.icons[id] = val;
+  save();
+  renderTree();
+  renderEmu();
+  const prev = document.querySelector(".preview");
+  if (prev) prev.innerHTML = val || ICONS.gear;
+}
+function renameIcon(newId) {
+  const hit = find(sel);
+  if (!hit) return;
+  newId = String(newId || "").trim().replace(/\s+/g, "_");
+  if (!newId) return;
+  const old = iconId(hit.n);
+  tree.icons = tree.icons || {};
+  if (!tree.icons[newId]) tree.icons[newId] = tree.icons[old] || ICONS[old] || ICONS.gear;
+  hit.n.icon = newId;
+  save();
+  renderAll();
+}
+
+function addNode() {
+  const fresh = node("node", "New node", "gear", "");
+  const hit = sel && sel !== "__root__" ? find(sel) : null;
+  if (!hit) {
+    tree.rooms.push(fresh);
+  } else {
+    hit.n.children = hit.n.children || [];
+    hit.n.children.push(fresh);
+    openSet.add(hit.n.id);
+  }
+  sel = fresh.id;
+  renderAll();
+}
+
+function delSel() {
+  if (!sel) return;
+  const hit = find(sel);
+  if (!hit) return;
+  if (!armedDelete) {
+    armedDelete = true;
+    say("Tap Delete again to remove “" + hit.n.title + "”");
+    setTimeout(() => { armedDelete = false; }, 2500);
+    return;
+  }
+  armedDelete = false;
+  const i = hit.sib.indexOf(hit.n);
+  hit.sib.splice(i, 1);
+  if (clip && clip.id === sel) clip = null;
+  if (emuPath.includes(sel)) emuPath = [];
+  sel = hit.p ? hit.p.id : null;
+  renderAll();
+}
+
+function moveSel(dir) {
+  if (!sel) { say("Select a room, page, or setting first"); return; }
+  const hit = find(sel);
+  if (!hit) return;
+  const i = hit.sib.indexOf(hit.n);
+  if (i < 0) return;
+  const j = i + dir;
+  if (j < 0 || j >= hit.sib.length) {
+    say(hit.n.title + " is already at the " + (dir < 0 ? "top" : "bottom"));
+    return;
+  }
+  hit.sib.splice(i, 1);
+  hit.sib.splice(j, 0, hit.n);
+  renderAll();
+}
+
+function cutSel() {
+  if (!sel) return;
+  const hit = find(sel);
+  clip = hit ? hit.n : null;
+  renderTree();
+}
+function takeClip() {
+  if (!clip) { say("Cut something first"); return null; }
+  const src = find(clip.id);
+  if (!src) { clip = null; return null; }
+  src.sib.splice(src.sib.indexOf(src.n), 1);
+  const moved = src.n;
+  clip = null;
+  return moved;
+}
+
+function pasteAsRoom() {
+  const moved = takeClip();
+  if (!moved) return;
+  tree.rooms.push(moved);
+  sel = moved.id;
+  renderAll();
+  say("Moved to root: " + moved.title);
+}
+function selectRoot() { sel = "__root__"; renderTree(); renderInsp(); }
+function onDropRoot(ev) {
+  ev.preventDefault();
+  const srcId = ev.dataTransfer.getData("text/plain");
+  if (!srcId) return;
+  clip = find(srcId) && find(srcId).n;
+  pasteAsRoom();
+}
+
+function pasteSel() {
+  if (!clip) { say("Cut something first"); return; }
+  if (sel === "__root__" || !sel) return pasteAsRoom();
+  if (sel === clip.id) return;
+  if (isDescendant(clip, sel)) { say("Cannot paste into its own child"); return; }
+  const dest = find(sel);
+  if (!dest) return pasteAsRoom();
+  const moved = takeClip();
+  if (!moved) return;
+  dest.n.children = dest.n.children || [];
+  dest.n.children.push(moved);
+  sel = moved.id;
+  openSet.add(dest.n.id);
+  renderAll();
+  say("Moved “" + moved.title + "” under “" + dest.n.title + "”");
+}
+
+function isDescendant(nodeObj, id) {
+  let found = false;
+  walk(nodeObj.children || [], (n) => { if (n.id === id) found = true; });
+  return found;
+}
+
+function onDrag(ev, id) {
+  ev.dataTransfer.setData("text/plain", id);
+  ev.dataTransfer.effectAllowed = "move";
+}
+function onOver(ev, id) {
+  ev.preventDefault();
+  ev.currentTarget.classList.add("drop");
+}
+function onLeave(ev) { ev.currentTarget.classList.remove("drop"); }
+function onDrop(ev, destId) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove("drop");
+  const srcId = ev.dataTransfer.getData("text/plain");
+  if (!srcId || srcId === destId) return;
+  sel = destId;
+  clip = find(srcId) && find(srcId).n;
+  pasteSel();
+}
+
+let armedReset = false;
+let armedDelete = false;
+
+function say(msg) {
+  const t = document.getElementById("toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(say.tid);
+  say.tid = setTimeout(() => t.classList.remove("show"), 3200);
+}
+function applyParsed(obj) {
+  if (!obj || !Array.isArray(obj.rooms)) {
+    throw new Error("JSON needs a rooms array");
+  }
+  if (!Array.isArray(obj.pins)) obj.pins = [];
+  tree = normalizeTree(obj);
+  sel = null; clip = null; emuPath = [];
+  defaultOpen();
+  renderAll();
+  say("Imported " + tree.rooms.length + " rooms from file");
+}
+
+function resetTree() {
+  if (!armedReset) {
+    armedReset = true;
+    say("Tap Reset again to restore the default architecture");
+    setTimeout(() => { armedReset = false; }, 2500);
+    return;
+  }
+  armedReset = false;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  tree = seed();
+  sel = null; clip = null; emuPath = [];
+  defaultOpen();
+  renderAll();
+  say("Reset to default architecture");
+}
+
+function exportTree() {
+  const json = JSON.stringify(tree, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const name = "xcsoar-menu-tree.json";
+  if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+    window.navigator.msSaveOrOpenBlob(blob, name);
+    say("Saved " + name);
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 1000);
+  say("Downloading " + name);
+}
+
+function importTree(ev) {
+  const f = ev && ev.target && ev.target.files && ev.target.files[0];
+  if (!f) { say("No file selected"); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    try { applyParsed(JSON.parse(r.result)); }
+    catch (e) { say("Not a valid menu JSON file"); }
+  };
+  r.onerror = () => say("Could not read " + f.name);
+  r.readAsText(f);
+  ev.target.value = "";
+}
+
+function esc(s) {
+  return String(s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
+
+window.resetTree = resetTree;
+window.exportTree = exportTree;
+window.importTree = importTree;
+
+function toggleTree() {
+  const on = !document.body.classList.contains("tree-on");
+  document.body.classList.toggle("tree-on", on);
+  const ex = document.getElementById("explorer");
+  const btn = document.getElementById("btn-tree");
+  if (ex) ex.style.display = on ? "flex" : "none";
+  if (btn) btn.textContent = on ? "Hide tree" : "Reorganize";
+  if (on) {
+    renderTree();
+    renderInsp();
+  }
+}
+window.toggleTree = toggleTree;
+document.getElementById("btn-reset").addEventListener("click", resetTree);
+document.getElementById("btn-export").addEventListener("click", exportTree);
+document.getElementById("imp").addEventListener("change", importTree);
+window.addNode = addNode;
+window.moveSel = moveSel;
+window.cutSel = cutSel;
+window.pasteSel = pasteSel;
+window.pasteAsRoom = pasteAsRoom;
+window.selectRoot = selectRoot;
+window.onDropRoot = onDropRoot;
+window.delSel = delSel;
+window.selectNode = selectNode;
+window.toggleOpen = toggleOpen;
+window.editField = editField;
+window.applyPreset = applyPreset;
+window.editIconSvg = editIconSvg;
+window.renameIcon = renameIcon;
+window.onDrag = onDrag;
+window.onOver = onOver;
+window.onDrop = onDrop;
+window.onLeave = onLeave;
+window.openEmu = openEmu;
+window.closeEmu = closeEmu;
+window.emuBack = emuBack;
+window.emuFlip = emuFlip;
+window.toggleInsp = toggleInsp;
+window.foldAll = foldAll;
+renderAll();
+</script>
 </body>
 </html>
